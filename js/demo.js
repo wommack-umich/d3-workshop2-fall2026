@@ -1,149 +1,180 @@
 // ============================================================================
-// DEMO.JS - Track outline (we build this together in class)
+// PARTICIPATION.JS - Tyre strategy (in class, in pairs)
 // ============================================================================
-// Question: what does this circuit look like?
+// Question: who ran which tyres, and when? Who deviated from the winner's strategy?
 //
-// race.outline is a list of [x, y] positions of one car during one lap.
-// The units are arbitrary, so we have to scale them into our SVG ourselves.
+// One row per driver (in finishing order), one bar per stint.
+// A stint is the run on one set of tyres, from lap_start to lap_end.
+// Each bar gets the compound's color AND its letter (S, M, H, I, W),
+// so the chart does not depend on color alone.
+//
+// Interactions:
+//   - drag across the chart (d3.brushX): tells chart 3 to zoom to those laps (TODO 7)
+//   - when chart 3 highlights a driver, fade the other drivers' bars (assignment TODO 12)
+//
+// Follow the TODO comments and refer to demo.js for guidance.
 //
 // Read more:
-//   Scales      https://d3js.org/d3-scale/linear
-//   Lines       https://d3js.org/d3-shape/line
-//   Transitions https://d3js.org/d3-transition
-// ============================================================================
+//   Band scales https://d3js.org/d3-scale/band
+//   Axes        https://d3js.org/d3-axis
+//   Data joins  https://d3js.org/d3-selection/joining
+//   Brushing    https://d3js.org/d3-brush
 
-import { onRaceChange } from './data.js';
+import { onRaceChange, announce, listen } from './data.js';
 
-// No animation on the first draw (page load); after that, transitions take 750 ms.
-// Use .transition().duration(duration), and set duration = 750 at the end of each draw.
 let duration = 0;
 
-
 // ============================================================================
-// SVG SETUP
+// CHART DIMENSIONS AND SVG SETUP
 // ============================================================================
-// viewBox makes the SVG scale with the page, keeping its shape
 
-const width = 600;
-const height = 400;
-const padding = 20;
+const margin = { top: 10, right: 20, bottom: 40, left: 50 };
+const width = 900;
+const rowHeight = 22; // height of one driver row
 
-const svg = d3.select('#chart1')
+const svg = d3.select('#chart2')
     .append('svg')
-    .attr('viewBox', `0 0 ${width} ${height}`)
     .attr('role', 'img')
-    .attr('aria-label', 'Track outline');
+    .attr('aria-label', 'Tyre strategy of every driver');
 
-// We create the elements ONCE here, and only change their attributes when the race changes
-const track = svg.append('path').attr('class', 'track');
+// Groups for the axes and the bars, created once
+const xAxisGroup = svg.append('g').attr('class', 'axis');
+const yAxisGroup = svg.append('g').attr('class', 'axis').attr('transform', `translate(${margin.left}, 0)`);
+const barsGroup = svg.append('g');
+const brushGroup = svg.append('g').attr('class', 'brush');
+const xLabel = svg.append('text')
+    .attr('class', 'axis-label')
+    .attr('text-anchor', 'end')
+    .attr('x', width - margin.right)
+    .text('Lap (drag across the chart to zoom chart 3)');
 
-// TODO: append a circle with class 'start-dot' (radius 7) and a text 'Start / finish'
-const startDot = svg.append('circle').attr('class', 'start-dot').attr('r', 7);
-const startLabel = svg.append('text').text('Start / Finish');
-
-// TODO: we also need one more dot that will trace around the circuit when we hit play
-// It should be invisible at the beginning 
-const replayDot = svg.append('circle').attr('class', 'replay-dot').attr('r', 8).attr('opacity', 0)
-
+let x = d3.scaleLinear();
+let maxLap = 1;
 
 // ============================================================================
-// LINE GENERATOR
+// BRUSH: drag across the chart to pick a range of laps (brushX only moves along x,
+// so every driver is included)
 // ============================================================================
-// d3.line() turns a list of [x, y] points into the "d" attribute of a <path>.
 
-// TODO: create a line generator with a closed, smooth curve
-// Hint: d3.line().curve(d3.curveCatmullRomClosed.alpha(0.5))
-const line = d3.line().curve(d3.curveCatmullRomClosed.alpha(0.5))
+// TODO STEP 7 (do it after STEP 6): create the brush ONCE, here.
+// When the user lets go of the mouse ('end'), turn the selected pixels into laps
+// and announce them, so chart 3 can zoom in.
+const brush = d3.brushX()
+    .on('end', event => {
+        // brush.move() in our own code also fires 'end': only react to the user
+        if (!event.sourceEvent) return;
+
+        // A click without dragging clears the selection: tell chart 3 to show all laps
+        if (!event.selection) {
+            announce(/* Define the message name */ 'lapRange', /* Define the value that means "all laps" */ null);
+            return;
+        }
+
+        // event.selection is [left pixel, right pixel]; turn both into laps
+        const [x0, x1] = event.selection.map(/* Specify the scale function that turns pixels back into laps */ px => x.invert(px));
+
+        // A bar for lap n spans from n - 1 to n on the x scale, so:
+        const firstLap = Math.max(1, Math.floor(x0) + 1); // round x0 down and add 1, but never below lap 1 (Math.floor, Math.max)
+        const lastLap = Math.min(maxLap, Math.max(firstLap + 1, Math.ceil(x1))); // round x1 up, at least firstLap + 1, but never above maxLap (Math.ceil, Math.min)
+
+        announce('lapRange', [firstLap, lastLap]);
+    });
 
 
 // ============================================================================
 // DRAW (runs for the first race and every time the race changes)
 // ============================================================================
-
 onRaceChange(race => {
-    const points = race.outline;
-    console.log('Outline points:', points.length, points.slice(0, 3));
+    const height = margin.top + race.drivers.length * rowHeight + margin.bottom;
+    svg.attr('viewBox', `0 0 ${width} ${height}`);
+    xLabel.attr('y', height - 6);
+    maxLap = race.maxLap
 
-    // TODO STEP 1: How big is the track? Use d3.extent to get [min, max] of x and of y
-    const xRange = 
-    const yRange = 
+    // TODO STEP 1: Create the scales
+    const y = d3.scaleBand()
+        .domain(race.drivers.map(d => d.driver_number))
+        .range([margin.top, height - margin.bottom])
+        .padding(0.15); // use d3.scaleBand() and race.drivers from the data
+    x = d3.scaleLinear()
+        .domain([0, race.maxLap])
+        .range([margin.left, width - margin.right]); // use d3.scaleLinear() and race.maxLap from the data; don't add const
 
-    const trackWidth = 
-    const trackHeight = 
+    const acronym = new Map(race.drivers.map(d => [d.driver_number, d.name_acronym]));
 
-    // TODO STEP 2: Calculate the scale factor for both axes
-    // The track length and height are way bigger than the available pixels on the screen, so we have to shrink it
-    // k is the min value between two values:
-    // screen width - left and right padding over the track width
-    // screen height - top and bottom padding over the track height
-    // k =
+    // TODO STEP 2: Draw the axes; use n => acronym.get(n) to get the driver acronym on y axis
+    xAxisGroup  
+        .attr(/* Define transform to move the x axis to the bottom */ 'transform', `translate(0, ${height - margin.bottom})`)
+        .transition().duration(/* Define duration */ duration)
+        .call(/* Specify function call*/ d3.axisBottom(x));
 
-    // TODO STEP 3: Center the track 
-    // Right now the track would start from the top left corner of the canvas
-    // We need to create an offset to start from the center
-    const offsetX = 
-    const offsetY = 
+    yAxisGroup
+        .transition().duration(/* Define duration */ duration)
+        .call(/* Specify function call*/ d3.axisLeft(y).tickFormat(n => acronym.get(n)));
+  
+
+    // Only stints of drivers in the list (rows)
+    const stints = race.stints.filter(s => acronym.has(s.driver_number));
+  
+    // TODO STEP 3: Join the stints to <g class="stint"> groups, with a KEY so D3 knows which bar is which
+    // On enter, each group gets a rect (the bar) and a text (the compound letter)
+    const groups = barsGroup.selectAll('g.stint')
+        .data(stints, /* Define the key: driver number and stint number, e.g. "1-2" */ d => `${d.driver_number}-${d.stint_number}`)
+        .join(
+            enter => {
+                const g = enter.append('g').attr('class', 'stint').attr('opacity', 0);
+                g.append(/* Append the bar */ 'rect').attr('rx', 3);
+                g.append(/* Append the letter */ 'text').attr('text-anchor', 'middle').attr('dy', '0.35em');
+                return g;
+            },
+            update => update,
+            exit => exit.transition().duration(/* Define duration */ duration).attr('opacity', 0).remove()
+        );
+
+    const barWidth = d => /* Define the width using x, d.lap_start and d.lap_end */ x(d.lap_end) - x(d.lap_start - 1);
     
-    
-    // TODO STEP 4: Build scales x and y, using scale factor x
-    const x = d3.scaleLinear()
-        .domain(/* Define domain */)
-        .range(/* Define range */)
 
-    const y = d3.scaleLinear()
-        .domain(/* Define domain */)
-        .range(/* Define range */) // Remember: SVG y points DOWN, so flip the range of y (otherwise the circuit is mirrored)
-    
-    // TODO STEP 5: convert the points to screen positions and set the path's "d" attribute
-    const screenPoints = points.map(d => [])
+     // TODO STEP 4: Position each rect and color it by compound (the colors are in css/style.css)
+    groups.select('rect')
+        .attr('class', d => /* Define the class: the compound name */ d.compound)
+        .transition().duration(duration)
+        .attr('x', d => /* Define x: where the stint's first lap starts, x(d.lap_start - 1) */ x(d.lap_start - 1))
+        .attr('y', d => /* Define y: the driver's row */ y(d.driver_number))
+        .attr('width', barWidth)
+        .attr('height', /* Define the height: one band of the y scale */ y.bandwidth());
 
-    // TODO STEP 6: Use a transition so the old circuit morphs into the new one when the race changes:
-    // track.transition().duration(duration).attr('d', ...)
-    // ...and at the end of this function: duration = 750;
+    // TODO STEP 5: Put the compound letter in the middle of each bar
+    groups.select('text')
+        .attr('class', d => `stint-letter ${d.compound}-letter`)
+        .text(d => /* Define the letter: the first character of the compound */ d.compound.charAt(0))
+        .transition().duration(duration)
+        .attr('x', d => /* Define x: the middle of the bar */ x(d.lap_start - 1) + barWidth(d) / 2)
+        .attr('y', d => /* Define y: the middle of the row */ y(d.driver_number) + y.bandwidth() / 2)
+        .attr('opacity', d => /* Hide the letter (0) on bars narrower than 14 px, otherwise 1 */ barWidth(d) < 14 ? 0 : 1);
 
-    // TODO STEP 7: move the start/finish dot and label to the first point of the lap
-    const [startX, startY] = 
-    // startDot is a circle, so it means we need to define cx, cy
-    // startLabel is a text, we need to define x and y
 
-    // Update the aria-label of the svg with the race name
-    svg.attr('aria-label', `Track outline of the ${race.label}`);
-    replayDot.interrupt().attr('opacity', 0);
+     // TODO STEP 6: Fade the bars in, so new bars appear smoothly when the race changes
+    groups.transition().duration(/* Define duration */ duration).attr('opacity', /* Define opacity */ 1);
+
+    // TODO STEP 7 (continued): stretch the brush over the whole plot area (all driver rows)
+    // and clear any old selection when the race changes
+    brush.extent([[/* Define left */ margin.left, /* Define top */ margin.top], [/* Define right */ width - margin.right, /* Define bottom */ height - margin.bottom]]);
+    brushGroup.call(brush).call(brush.move, null);
+    // Then drag across the chart: chart 3 zooms in once you finish the assignment.
+
+    // TODO STEP 8: look at the chart for each race. Who deviated most from the winner's strategy?
+    // Write your answer (3 sentences) at the bottom of README.md, under "Participation answer".
+
+    // TODO STEP 6 (continued): from the next race change on, animate
+    duration = /* Define duration: 750 */ 750;
 });
 
-
 // ============================================================================
-// REPLAY A LAP
+// LINKED HIGHLIGHT (part of the assignment, TODO 12 in assignment.js)
 // ============================================================================
-// TODO: when the "Replay a lap" button (#replay) is clicked, move a dot along the path in 5 seconds.
-const replayButton = d3.select('#replay');
 
-replayButton.on('click', () => {
-    const path = track.node();
-    const length = path.getTotalLength();
-    const start = path.getPointAtLength(0);
-
-    // TODO STEP 8: whenever new track is selected, place the replayDot to the start of that track
-    // Hint: starting point is it start.x and start.y
-    replayDot.interrupt()
-        .attr(/* Define opacity */)
-        .attr(/* Define position along x axis */)
-        .attr(/* Define position along y axis */)
-        .attr('transform', null);
-
-    
-    // Disable the button while the lap plays, so clicks do not restart it
-    replayButton.property('disabled', true);
-
-    // TODO STEP 9: Set animation duration to 5 seconds and specify how to translate points
-    replayDot.transition()
-        .duration(/* Define duration */)
-        .ease(d3.easeLinear) // constant speed
-        .attrTween('transform', () => t => {
-            const p = path.getPointAtLength(t * length);
-            return `translate(${/* Define the translation point's x axis value */}, ${/* Define the translation point's y axis value */})`;
-        })
-        // 'end' when the lap finishes, 'interrupt' when a race change stops it
-        .on('end interrupt', () => replayButton.property('disabled', false));
-
+// TODO 12 (assignment): chart 3 announces the driver under the mouse.
+// Listen to it and fade the other drivers' bars
+listen('hoverDriver', driverNumber => {
+    barsGroup.selectAll('g.stint')
+        .attr('opacity', d => /* 1 for that driver (and for everyone when driverNumber is null), 0.25 for the others */ (driverNumber == null || d.driver_number === driverNumber) ? 1 : 0.25);
 });

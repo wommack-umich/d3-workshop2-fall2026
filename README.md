@@ -70,15 +70,15 @@ git push
 
 **Participation answer** (3 sentences): which driver's strategy differed most from the winner's, and what on the chart shows it?
 
->
+> Lance Stroll’s strategy differed most from the winner’s. Max Verstappen made one stop, Medium then Hard, while Stroll started on Soft, then ran Hard and finished on Medium, so he stopped twice. On the chart this shows as three bars in Stroll’s row (red S, grey H, yellow M) against two in Verstappen’s, and Stroll’s Soft stint is short, ending around lap 9.
 
 **Assignment** (2 or 3 sentences): pick one race. What does the race trace show that a plain chart of lap times would hide?
 
->
+> In the Dutch Grand Prix, the race trace shows the field spreading out to 30 to 60 seconds behind Piastri over the long green-flag stints, then snapping back to within a few seconds of him after laps 26, 57 and 68. That is the three safety cars erasing the gaps. A plain chart of lap times would hide this, because it would only show a few slow laps and not that every driver’s accumulated deficit disappeared, and a pit stop’s roughly 20 seconds would swamp the tenths of a second that separate drivers on normal laps. The trace adds the lap times up against a reference driver, so you can see who gained or lost time and exactly when.
 
 **Bonus** (optional): which race did you add, and why?
 
->
+> I added Las Vegas because I visited the track over the summer.
 
 ---
 
